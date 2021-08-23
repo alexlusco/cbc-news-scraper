@@ -1,0 +1,223 @@
+---
+title: "Ici-Radio-Canada-Web-Scrape"
+output: html_notebook
+---
+
+# load the libraries
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(RSelenium)
+library(rvest)
+```
+
+# build link index, in this case using "coronavirus" as key word
+```{r message=FALSE, warning=FALSE}
+nums <- 1:500
+
+urls_coronavirus <- paste("https://ici.radio-canada.ca/recherche?pageNumber=", nums, "&q=coronavirus", sep = "")
+
+#test <- "https://ici.radio-canada.ca/recherche?pageNumber=152&q=coronavirus"
+
+driver <- rsDriver(browser = "firefox", port = 4833L)
+
+remote_driver <- driver[["client"]]
+
+liste_temp <- list()
+
+for(u in urls_coronavirus) {
+  
+  cat(glue::glue("Getting data from {u}"))
+  
+  remote_driver$navigate(u)
+  
+  Sys.sleep(1)
+  
+  html <- remote_driver$getPageSource()[[1]]
+
+  page <- read_html(html)
+  
+  titre <- page %>%
+    html_nodes('.full-width-xs') %>%
+    html_nodes('.u-theme-item-wrapper') %>%
+    html_nodes('.card-click-overlay') %>%
+    html_text(trim = TRUE)
+  
+  lien <- page %>%
+    html_nodes('.full-width-xs') %>%
+    html_nodes('.u-theme-item-wrapper') %>%
+    html_nodes('.list-card-container') %>%
+    html_nodes('a') %>%
+    html_attr("href") %>%
+    url_absolute(u)
+  
+  lien <- lien %>%
+    as_tibble() %>%
+    filter(!str_detect(value, "theme")) %>%
+    filter(str_detect(value, "[0-9]+")) %>%
+    distinct(value)
+  
+  date <- page %>%
+    html_nodes('.m-published-date-time') %>%
+    html_text(trim = TRUE)
+  
+  mots_cles <- page %>%
+    html_nodes('.list-card-container') %>%
+    html_node('footer') %>%
+    html_text(trim = FALSE)
+  
+  df <- tibble(
+    titre = titre,
+    lien_article = lien$value,
+    lien_recherche = u,
+    date = date,
+    mots_cles = mots_cles
+  )
+  
+  liste_temp[[u]] <- df
+  
+  Sys.sleep(sample(3:10, 1))
+  
+}
+```
+
+# save results in `ici_radio_index`
+```{r}
+ici_radio_index <- bind_rows(liste_temp)
+```
+
+# build link index using "covid" as key word
+```{r}
+nums <- 1:500
+
+urls_coronavirus <- paste("https://ici.radio-canada.ca/recherche?pageNumber=", nums, "&q=covid", sep = "")
+
+#driver <- rsDriver(browser = "firefox", port = 4833L)
+
+#remote_driver <- driver[["client"]] 
+
+liste_temp2 <- list()
+
+for(u in urls_coronavirus) {
+  
+  cat(glue::glue("Getting data from {u}"))
+  
+  remote_driver$navigate(u)
+  
+  Sys.sleep(1)
+  
+  html <- remote_driver$getPageSource()[[1]]
+
+  page <- read_html(html)
+  
+  titre <- page %>%
+    html_nodes('.full-width-xs') %>%
+    html_nodes('.u-theme-item-wrapper') %>%
+    html_nodes('.card-click-overlay') %>%
+    html_text(trim = TRUE)
+  
+  lien <- page %>%
+    html_nodes('.full-width-xs') %>%
+    html_nodes('.u-theme-item-wrapper') %>%
+    html_nodes('.list-card-container') %>%h
+    html_nodes('a') %>%
+    html_attr("href") %>%
+    url_absolute(u)
+  
+  lien <- lien %>%
+    as_tibble() %>%
+    filter(!str_detect(value, "theme")) %>%
+    filter(str_detect(value, "[0-9]+")) %>%
+    distinct(value)
+  
+  date <- page %>%
+    html_nodes('.m-published-date-time') %>%
+    html_text(trim = TRUE)
+  
+  mots_cles <- page %>%
+    html_nodes('.list-card-container') %>%
+    html_node('footer') %>%
+    html_text(trim = FALSE)
+  
+  df <- tibble(
+    titre = titre,
+    lien_article = lien$value,
+    lien_recherche = u,
+    date = date,
+    mots_cles = mots_cles
+  )
+  
+  liste_temp2[[u]] <- df
+  
+  Sys.sleep(sample(3:10, 1))
+  
+}
+```
+
+# save results in `ici_radio_index2`
+```{r}
+ici_radio_index2 <- bind_rows(liste_temp2)
+```
+
+# merge the two indexes to form `ici_radio_index_joined`, fltering for only unique links
+```{r}
+ici_radio_index_joined <- ici_radio_index %>%
+  bind_rows(ici_radio_index2) %>%
+  distinct(lien_article, .keep_all = TRUE)
+```
+
+# get information from each link (title, text, author, date)
+```{r}
+list_temp3 <- list()
+
+for (i in ici_radio_index_joined$lien_article) {
+  
+  cat(glue::glue("Getting {i}"))
+  
+  try({
+      
+    page <- read_html(i)
+    
+    tryCatch({
+      titre2 <- page %>% html_node("body") %>% html_node("h1") %>% html_text(trim = TRUE)}, 
+      error = {NA})
+  
+    tryCatch({
+      texte <- page %>% html_nodes(".document-simple-redactional-container .e-p") %>% html_text(trim = TRUE) %>% str_c(collapse = " ")},
+      error = {NA})
+  
+    tryCatch({
+      auteur <- page %>% html_node(".signature-avatar-first-name") %>% html_text(trim = TRUE)}, 
+      error = {NA})
+
+    tryCatch({
+      date2 <- page %>% html_node(".m-published-date-time") %>% html_text(trim = TRUE)}, 
+      error = {NA})
+  
+    df <- tibble(
+      titre2 = titre2,
+      texte = texte,
+      auteur = auteur,
+      date2 = date2,
+      lien_article = i
+      )
+    
+    list_temp3[[i]] <- df
+    
+    })
+  
+  Sys.sleep(sample(3:10, 1))
+  
+  }
+```
+
+# save results in `ici_radio_articles`
+```{r}
+ici_radio_articles <- list_temp3 %>% bind_rows()
+```
+
+# save `ici_radio_index_joined` and `ici_radio_articles` as csv files
+```{r}
+write_csv(ici_radio_index_joined, "<PATH/FILENAME.csv>")
+
+write_csv(ici_radio_articles, "<PATH/FILENAME.csv>")
+```
